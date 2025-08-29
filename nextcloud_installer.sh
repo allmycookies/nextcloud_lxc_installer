@@ -2,24 +2,9 @@
 
 # ==========================================================
 # Nextcloud Installer and Management Script for LXC Container
-# Version: 1.0
+# Version: 1.1
 # Author: Gemini
 # ==========================================================
-
-# --- Konfigurationsvariablen ---
-NEXTCLOUD_BASE_DIR="/var/www"
-NEXTCLOUD_DIR="${NEXTCLOUD_BASE_DIR}/nextcloud"
-APACHE_CONF="/etc/apache2/sites-available/nextcloud.conf"
-APACHE_SSL_CONF="/etc/apache2/sites-available/nextcloud-ssl.conf"
-PHP_CONF="/etc/php/8.2/apache2/php.ini"  # Passen Sie die PHP-Version ggf. an
-MYSQL_ROOT_PASS=""
-DB_USER=""
-DB_PASS=""
-DB_NAME=""
-ADMIN_USER=""
-ADMIN_PASS=""
-NEXTCLOUD_URL=""
-NEXTCLOUD_VERSION="latest"  # Nextcloud 31.0.0 ist die aktuelle Stable-Version
 
 # --- Farben für die Ausgabe ---
 RED='\033[0;31m'
@@ -42,6 +27,19 @@ log_error() {
     echo -e "${RED}[ERROR] $1${NC}"
 }
 
+prompt_with_default() {
+    local prompt_text="$1"
+    local default_value="$2"
+    local variable_name="$3"
+    
+    read -p "$prompt_text [$default_value]: " input
+    if [[ -z "$input" ]]; then
+        eval "$variable_name=\"$default_value\""
+    else
+        eval "$variable_name=\"$input\""
+    fi
+}
+
 check_root() {
     if [[ $EUID -ne 0 ]]; then
         log_error "Dieses Skript muss mit Root-Rechten ausgeführt werden."
@@ -49,27 +47,27 @@ check_root() {
     fi
 }
 
-check_dependencies() {
-    if ! command -v apache2 &> /dev/null || ! command -v mariadb &> /dev/null || ! command -v php &> /dev/null; then
-        return 1
-    fi
-    return 0
-}
-
 # --- Installationsschritte ---
 
 install_nextcloud() {
     log_info "Starte die Nextcloud-Installation..."
 
-    # Abfrage der Benutzerinformationen
-    read -p "Geben Sie den MariaDB-Root-Passwort ein: " MYSQL_ROOT_PASS
-    read -p "Geben Sie den gewünschten Nextcloud-Datenbankbenutzer ein: " DB_USER
-    read -p "Geben Sie das Passwort für den Datenbankbenutzer ein: " DB_PASS
-    read -p "Geben Sie den Namen der Nextcloud-Datenbank ein: " DB_NAME
-    read -p "Geben Sie den Nextcloud-Admin-Benutzername ein: " ADMIN_USER
-    read -p "Geben Sie das Passwort für den Nextcloud-Admin ein: " ADMIN_PASS
-    read -p "Geben Sie die URL ein, unter der Nextcloud erreichbar sein soll (z.B. cloud.ihredomain.de): " NEXTCLOUD_URL
-    read -p "Geben Sie die Nextcloud-Version ein (z.B. 31.0.0 oder 'latest'): " NEXTCLOUD_VERSION
+    # Abfrage der Benutzerinformationen mit Standardwerten
+    prompt_with_default "Geben Sie das MariaDB-Root-Passwort ein" "your_root_password" MYSQL_ROOT_PASS
+    prompt_with_default "Geben Sie den gewünschten Nextcloud-Datenbankbenutzer ein" "nextcloud_user" DB_USER
+    prompt_with_default "Geben Sie das Passwort für den Datenbankbenutzer ein" "nextcloud_db_pass" DB_PASS
+    prompt_with_default "Geben Sie den Namen der Nextcloud-Datenbank ein" "nextcloud_db" DB_NAME
+    prompt_with_default "Geben Sie den Nextcloud-Admin-Benutzername ein" "nc_admin" ADMIN_USER
+    prompt_with_default "Geben Sie das Passwort für den Nextcloud-Admin ein" "nc_admin_pass" ADMIN_PASS
+    prompt_with_default "Geben Sie die URL ein, unter der Nextcloud erreichbar sein soll (z.B. cloud.ihredomain.de)" "nextcloud.example.com" NEXTCLOUD_URL
+    prompt_with_default "Geben Sie die Nextcloud-Version ein (z.B. 31.0.0 oder 'latest')" "latest" NEXTCLOUD_VERSION
+
+    # --- Konfigurationsvariablen basierend auf den Eingaben ---
+    NEXTCLOUD_BASE_DIR="/var/www"
+    NEXTCLOUD_DIR="${NEXTCLOUD_BASE_DIR}/nextcloud"
+    APACHE_CONF="/etc/apache2/sites-available/nextcloud.conf"
+    APACHE_SSL_CONF="/etc/apache2/sites-available/nextcloud-ssl.conf"
+    PHP_CONF="/etc/php/8.2/apache2/php.ini"
 
     # 1. System aktualisieren
     log_info "Aktualisiere das System..."
@@ -106,7 +104,6 @@ EOF
 
     # 6. Nextcloud herunterladen und entpacken
     log_info "Lade Nextcloud Version ${NEXTCLOUD_VERSION} herunter..."
-    # Nextcloud Download-Link
     if [ "$NEXTCLOUD_VERSION" == "latest" ]; then
         DOWNLOAD_URL="https://download.nextcloud.com/server/releases/latest.zip"
     else
@@ -302,27 +299,26 @@ uninstall_nextcloud() {
     
     # 2. Nextcloud-Verzeichnis löschen
     log_info "Lösche Nextcloud-Dateien..."
-    rm -rf ${NEXTCLOUD_DIR}
+    rm -rf /var/www/nextcloud
     
     # 3. Datenbank löschen
     read -p "Geben Sie das MariaDB-Root-Passwort ein, um die Datenbank zu löschen: " MYSQL_ROOT_PASS
-    if [ -n "${DB_NAME}" ]; then
-        log_info "Lösche Datenbank ${DB_NAME} und Benutzer ${DB_USER}..."
-        mysql -u root -p"${MYSQL_ROOT_PASS}" <<EOF
-        DROP DATABASE IF EXISTS ${DB_NAME};
-        DROP USER IF EXISTS '${DB_USER}'@'localhost';
-        FLUSH PRIVILEGES;
+    prompt_with_default "Geben Sie den Namen der zu löschenden Datenbank ein" "nextcloud_db" DB_NAME_TO_DELETE
+    prompt_with_default "Geben Sie den Namen des zu löschenden Benutzers ein" "nextcloud_user" DB_USER_TO_DELETE
+
+    log_info "Lösche Datenbank ${DB_NAME_TO_DELETE} und Benutzer ${DB_USER_TO_DELETE}..."
+    mysql -u root -p"${MYSQL_ROOT_PASS}" <<EOF
+    DROP DATABASE IF EXISTS ${DB_NAME_TO_DELETE};
+    DROP USER IF EXISTS '${DB_USER_TO_DELETE}'@'localhost';
+    FLUSH PRIVILEGES;
 EOF
-        log_success "Datenbank erfolgreich gelöscht."
-    else
-        log_error "Datenbankname nicht gesetzt. Kann nicht löschen."
-    fi
+    log_success "Datenbank erfolgreich gelöscht."
     
     # 4. Apache-Konfigurationen entfernen
     log_info "Entferne Apache-Konfigurationen..."
     a2dissite nextcloud.conf
     a2dissite nextcloud-ssl.conf
-    rm -f ${APACHE_CONF} ${APACHE_SSL_CONF}
+    rm -f /etc/apache2/sites-available/nextcloud.conf /etc/apache2/sites-available/nextcloud-ssl.conf
     
     # 5. Cron Job entfernen
     log_info "Entferne Cron Job..."
@@ -335,12 +331,12 @@ EOF
 }
 
 change_admin_password() {
-    if [ ! -d "${NEXTCLOUD_DIR}" ]; then
+    if [ ! -d "/var/www/nextcloud" ]; then
         log_error "Nextcloud ist nicht installiert. Installation zuerst durchführen."
         return
     fi
     
-    read -p "Geben Sie den Nextcloud-Admin-Benutzername ein: " admin_user_change
+    prompt_with_default "Geben Sie den Nextcloud-Admin-Benutzername ein" "nc_admin" admin_user_change
     read -s -p "Geben Sie das neue Passwort ein: " new_password
     echo ""
     read -s -p "Bestätigen Sie das neue Passwort: " confirm_password
@@ -352,7 +348,7 @@ change_admin_password() {
     fi
     
     log_info "Ändere Passwort für Benutzer ${admin_user_change}..."
-    sudo -u www-data php ${NEXTCLOUD_DIR}/occ user:resetpassword "${admin_user_change}"
+    sudo -u www-data php /var/www/nextcloud/occ user:resetpassword "${admin_user_change}"
     
     log_success "Passwort für ${admin_user_change} erfolgreich geändert. Sie müssen es nun manuell in der Konsole eingeben."
     
