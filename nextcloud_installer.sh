@@ -31,6 +31,7 @@ NC_PATH="/var/www/nextcloud"
 # ==============================================================================
 
 # Funktion zur Bereinigung einer bestehenden Installation
+# Funktion zur Bereinigung einer bestehenden Installation
 cleanup() {
     echo " Beginne mit der Bereinigung der Nextcloud-Installation..."
 
@@ -40,42 +41,31 @@ cleanup() {
     systemctl disable "${SERVICES[@]}" &>/dev/null || true
 
     # Apache vHost entfernen
-    echo "→ Entferne Apache vHost Konfiguration..."
-    if [ -f "/etc/apache2/sites-available/${NC_URL}.conf" ]; then
-        a2dissite "${NC_URL}.conf" &>/dev/null || true
-        rm -f "/etc/apache2/sites-available/${NC_URL}.conf"
-        systemctl reload apache2
-    fi
-     if [ -f "/etc/apache2/sites-available/${NC_URL}-le-ssl.conf" ]; then
-        a2dissite "${NC_URL}-le-ssl.conf" &>/dev/null || true
-        rm -f "/etc/apache2/sites-available/${NC_URL}-le-ssl.conf"
-        systemctl reload apache2
-    fi
+    echo "→ Entferne Apache vHost Konfigurationen..."
+    a2dissite "${NC_URL}.conf" &>/dev/null || true
+    a2dissite "${NC_URL}-le-ssl.conf" &>/dev/null || true
+    rm -f "/etc/apache2/sites-available/${NC_URL}.conf"
+    rm -f "/etc/apache2/sites-available/${NC_URL}-le-ssl.conf"
+    systemctl reload apache2 &>/dev/null || true
 
-    # Datenbank und DB-Benutzer löschen
+    # Datenbank und DB-Benutzer löschen (JETZT ROBUSTER)
     echo "→ Lösche MariaDB Datenbank und Benutzer..."
-    # Prüfen, ob die Datenbank existiert, bevor sie gelöscht wird
-    if mysql -e "USE \`${NC_DB_NAME}\`;" &>/dev/null; then
-        mysql -e "DROP DATABASE \`${NC_DB_NAME}\`;"
-    else
-        echo "   Datenbank ${NC_DB_NAME} nicht gefunden, übersprungen."
-    fi
-    # Prüfen, ob der Benutzer existiert, bevor er gelöscht wird
-    if mysql -e "SELECT user FROM mysql.user WHERE user='${NC_DB_USER}'" | grep -q "${NC_DB_USER}"; then
-        mysql -e "DROP USER '${NC_DB_USER}'@'localhost';"
-        mysql -e "FLUSH PRIVILEGES;"
-    else
-        echo "   Datenbankbenutzer ${NC_DB_USER} nicht gefunden, übersprungen."
-    fi
+    mysql -e "DROP DATABASE IF EXISTS \`${NC_DB_NAME}\`;"
+    mysql -e "DROP USER IF EXISTS '${NC_DB_USER}'@'localhost';"
+    mysql -e "FLUSH PRIVILEGES;"
 
     # Nextcloud-Dateien löschen
-    echo "→ Lösche Nextcloud-Verzeichnis (${NC_PATH})..."
+    echo "→ Lösche Nextcloud-Verzeichnisse (${NC_PATH} und /var/nextcloud_data)..."
     rm -rf "${NC_PATH}"
-    rm -rf "/var/nextcloud_data" # Standard-Datenverzeichnis
+    # Überprüfen, ob das Datenverzeichnis existiert, bevor es gelöscht wird
+    if [ -d "/var/nextcloud_data" ]; then
+        rm -rf "/var/nextcloud_data"
+    fi
 
     # Cronjob entfernen
     echo "→ Entferne Cronjob..."
-    (crontab -u www-data -l | grep -v "${NC_PATH}/cron.php") | crontab -u www-data -
+    # Dieser Befehl stellt sicher, dass kein Fehler auftritt, wenn kein crontab existiert
+    (crontab -u www-data -l | grep -v "${NC_PATH}/cron.php" | crontab -u www-data -) &>/dev/null || true
 
     # Statusdatei löschen
     rm -f "$STATE_FILE"
