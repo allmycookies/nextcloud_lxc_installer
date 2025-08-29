@@ -30,17 +30,11 @@ NC_PATH="/var/www/nextcloud"
 # --- FUNKTIONSDEFINITIONEN ---
 # ==============================================================================
 
-# Funktion zur Bereinigung einer bestehenden Installation
-# Funktion zur Bereinigung einer bestehenden Installation
+# Funktion zur Bereinigung einer bestehenden Installation (V3 - Korrekte Reihenfolge)
 cleanup() {
     echo " Beginne mit der Bereinigung der Nextcloud-Installation..."
 
-    # Dienste stoppen und deaktivieren
-    echo "→ Stoppe und deaktiviere Dienste..."
-    systemctl stop "${SERVICES[@]}" &>/dev/null || true
-    systemctl disable "${SERVICES[@]}" &>/dev/null || true
-
-    # Apache vHost entfernen
+    # 1. Apache vHost entfernen (Apache ist noch aktiv)
     echo "→ Entferne Apache vHost Konfigurationen..."
     a2dissite "${NC_URL}.conf" &>/dev/null || true
     a2dissite "${NC_URL}-le-ssl.conf" &>/dev/null || true
@@ -48,27 +42,35 @@ cleanup() {
     rm -f "/etc/apache2/sites-available/${NC_URL}-le-ssl.conf"
     systemctl reload apache2 &>/dev/null || true
 
-    # Datenbank und DB-Benutzer löschen (JETZT ROBUSTER)
+    # 2. Datenbank und DB-Benutzer löschen (MariaDB MUSS hierfür laufen)
     echo "→ Lösche MariaDB Datenbank und Benutzer..."
+    # Zusätzliche Prüfung: Sicherstellen, dass MariaDB läuft, um den Fehler zu vermeiden
+    if ! systemctl is-active --quiet mariadb.service; then
+        echo "   MariaDB-Dienst läuft nicht, starte ihn temporär für die Bereinigung..."
+        systemctl start mariadb.service
+        sleep 2 # Gib dem Dienst einen Moment zum Starten
+    fi
     mysql -e "DROP DATABASE IF EXISTS \`${NC_DB_NAME}\`;"
     mysql -e "DROP USER IF EXISTS '${NC_DB_USER}'@'localhost';"
     mysql -e "FLUSH PRIVILEGES;"
 
-    # Nextcloud-Dateien löschen
+    # 3. JETZT alle Dienste stoppen und deaktivieren
+    echo "→ Stoppe und deaktiviere alle relevanten Dienste..."
+    systemctl stop "${SERVICES[@]}" &>/dev/null || true
+    systemctl disable "${SERVICES[@]}" &>/dev/null || true
+
+    # 4. Nextcloud-Dateien und -Verzeichnisse löschen
     echo "→ Lösche Nextcloud-Verzeichnisse (${NC_PATH} und /var/nextcloud_data)..."
     rm -rf "${NC_PATH}"
-    # Überprüfen, ob das Datenverzeichnis existiert, bevor es gelöscht wird
-    if [ -d "/var/nextcloud_data" ]; then
-        rm -rf "/var/nextcloud_data"
-    fi
+    rm -rf "/var/nextcloud_data"
 
-    # Cronjob entfernen
+    # 5. Cronjob entfernen
     echo "→ Entferne Cronjob..."
-    # Dieser Befehl stellt sicher, dass kein Fehler auftritt, wenn kein crontab existiert
     (crontab -u www-data -l | grep -v "${NC_PATH}/cron.php" | crontab -u www-data -) &>/dev/null || true
 
-    # Statusdatei löschen
+    # 6. Statusdatei löschen
     rm -f "$STATE_FILE"
+    
     echo "✅ Bereinigung abgeschlossen."
 }
 
