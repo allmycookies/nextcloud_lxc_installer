@@ -94,7 +94,7 @@ installation() {
     apt-get install -y \
         php8.2-gd php8.2-mysql php8.2-curl php8.2-mbstring php8.2-intl \
         php8.2-gmp php8.2-bcmath php8.2-xml php8.2-zip php8.2-imagick \
-        php8.2-redis php8.2-apcu libmagickcore-6.q16-6-extra # NEU: Paket für SVG-Support
+        php8.2-redis php8.2-apcu imagemagick # Ensure full ImageMagick with SVG support is installed
     echo "✅ PHP-Installation abgeschlossen."
 
     # 3. Webserver, Datenbank und Cache installieren
@@ -133,14 +133,47 @@ installation() {
     ServerAdmin admin@${NC_URL}
     ServerName ${NC_URL}
     DocumentRoot ${NC_PATH}
+
     <Directory ${NC_PATH}/>
         Require all granted
+        # AllowOverride All is required for the Nextcloud .htaccess file to work.
         AllowOverride All
         Options FollowSymLinks MultiViews
+
         <IfModule mod_dav.c>
             Dav off
         </IfModule>
     </Directory>
+
+    # Add security and privacy related headers
+    <IfModule mod_headers.c>
+        Header always set X-Content-Type-Options "nosniff"
+        Header always set X-Frame-Options "SAMEORIGIN"
+        Header always set X-Permitted-Cross-Domain-Policies "none"
+        Header always set X-Robots-Tag "noindex, nofollow"
+        Header always set Referrer-Policy "no-referrer"
+    </IfModule>
+
+    # Add mime types for modern file formats
+    <IfModule mod_mime.c>
+      AddType image/svg+xml svg svgz
+      AddType application/wasm wasm
+      # Serve ESM javascript files (.mjs) with correct mime type
+      AddType text/javascript js mjs
+    </IfModule>
+
+    # Service discovery and other rewrites
+    <IfModule mod_rewrite.c>
+        RewriteEngine on
+        # These are the essential rewrites for service discovery.
+        # The full .htaccess file is still used via "AllowOverride All".
+        RewriteRule ^\.well-known/carddav /remote.php/dav/ [R=301,L]
+        RewriteRule ^\.well-known/caldav /remote.php/dav/ [R=301,L]
+        RewriteRule ^ocm-provider/?$ /index.php [QSA,L]
+        RewriteRule ^ocs-provider/?$ /index.php [QSA,L]
+        RewriteRule ^\.well-known/(?!acme-challenge|pki-validation) /index.php [QSA,L]
+    </IfModule>
+
 </VirtualHost>
 EOF
     a2ensite "${NC_URL}.conf"
@@ -166,7 +199,12 @@ EOF
         --data-dir "/var/nextcloud_data"
     echo "✅ Nextcloud-Kerninstallation abgeschlossen."
     
-    # 9. Post-Installation & Fehlerbehebungen via 'occ'
+    # 9. NEU: Server-zu-sich-selbst-Problem beheben (Fix für Container-Umgebungen)
+    echo " Trage '${NC_URL}' in /etc/hosts ein, um Konnektivitätsprobleme zu beheben..."
+    echo "127.0.0.1 ${NC_URL}" >> /etc/hosts
+    echo "✅ Host-Eintrag für interne Erreichbarkeit gesetzt."
+
+    # 10. Post-Installation & Fehlerbehebungen via 'occ'
     echo " Führe Post-Installations-Konfigurationen durch..."
     sudo -u www-data php "${NC_PATH}/occ" config:system:set trusted_domains 1 --value="${NC_URL}"
     # Caching
@@ -175,26 +213,22 @@ EOF
     # Redis Konfiguration
     sudo -u www-data php "${NC_PATH}/occ" config:system:set redis host --value 'localhost'
     sudo -u www-data php "${NC_PATH}/occ" config:system:set redis port --value '6379'
-    # NEU: Redis für File Locking verwenden
+    # Redis für File Locking verwenden
     sudo -u www-data php "${NC_PATH}/occ" config:system:set 'filelocking.enabled' --value='true' --type=boolean
     sudo -u www-data php "${NC_PATH}/occ" config:system:set 'memcache.locking' --value='\OC\Memcache\Redis'
-    # NEU: Standard-Telefonregion setzen
+    # Standard-Telefonregion setzen
     sudo -u www-data php "${NC_PATH}/occ" config:system:set default_phone_region --value="DE"
-    # NEU: Wartungsfenster setzen (auf 1 Uhr nachts)
+    # Wartungsfenster setzen (auf 1 Uhr nachts)
     sudo -u www-data php "${NC_PATH}/occ" config:system:set maintenance_window_start --type=integer --value="1"
     
     # Reverse-Proxy-Konfiguration
     if [[ "$USE_REVERSE_PROXY" == "ja" ]]; then
         echo " Konfiguriere Nextcloud für den Betrieb hinter einem Reverse Proxy..."
-        sudo -u www-data php "${NC_PATH}/occ" config:system:set trusted_proxies 0 --value="${REVERSE_PROXY_IP}"
         sudo -u www-data php "${NC_PATH}/occ" config:system:set overwrite.cli.url --value="https://${NC_URL}"
+        sudo -u www-data php "${NC_PATH}/occ" config:system:set trusted_proxies 0 --value="${REVERSE_PROXY_IP}"
         sudo -u www-data php "${NC_PATH}/occ" config:system:set overwriteprotocol --value="https"
     fi
     echo "✅ Grundkonfiguration abgeschlossen."
-
-    # 10. NEU: Server-zu-sich-selbst-Problem beheben
-    echo " Trage '${NC_URL}' in /etc/hosts ein, um Konnektivitätsprobleme zu beheben..."
-    echo "127.0.0.1 ${NC_URL}" >> /etc/hosts
 
     # 11. Cronjob einrichten
     echo " Richte Cronjob ein..."
