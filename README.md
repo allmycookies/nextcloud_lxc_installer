@@ -1,9 +1,3 @@
-Absolut. Basierend auf deinem Nextcloud-Skript und im Stil deiner vorherigen `README.md` habe ich hier einen passenden Entwurf erstellt.
-
-Das Skript ist extrem gut, weil es nicht nur installiert, sondern proaktiv alle typischen Fehler behebt, über die Nutzer in der Nextcloud-Admin-Übersicht stolpern. Das ist ein riesiger Vorteil, den ich in der README hervorgehoben habe.
-
------
-
 # Nextcloud Installer & Manager for Proxmox LXC
 
 This script provides a comprehensive, interactive, and robust solution for installing and managing a "Bare Metal" Nextcloud instance on a **Debian 12** or **Ubuntu 22.04** LXC container. It is specifically designed to create a flawless, warning-free setup.
