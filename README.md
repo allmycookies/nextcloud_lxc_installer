@@ -42,7 +42,7 @@ Log in as the `root` user and execute the following command. The script will be 
 ### Option 1: `curl` (Recommended)
 
 ```bash
-bash <(curl -sSL https://raw.githubusercontent.com/allmycookies/nextcloud_lxc_installer/main/nc-installer.sh)
+bash <(curl -sSL https://raw.githubusercontent.com/allmycookies/nextcloud_lxc_installer/main/nextcloud_installer.sh)
 ```
 
 -----
@@ -50,7 +50,7 @@ bash <(curl -sSL https://raw.githubusercontent.com/allmycookies/nextcloud_lxc_in
 ### Option 2: `wget`
 
 ```bash
-bash <(wget -qO - https://raw.githubusercontent.com/allmycookies/nextcloud_lxc_installer/main/nc-installer.sh)
+bash <(wget -qO - https://raw.githubusercontent.com/allmycookies/nextcloud_lxc_installer/main/nextcloud_installer.sh)
 ```
 
 -----
